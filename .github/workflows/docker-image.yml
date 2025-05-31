@@ -1,0 +1,42 @@
+name: Build & Deploy Worker App
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-push-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set Docker image tag
+        run: echo "TAG=${{ github.run_number }}" >> $GITHUB_ENV
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build & Push Worker Image
+        run: |
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/worker-app:${{ env.TAG }} .
+          docker push ${{ secrets.DOCKER_USERNAME }}/worker-app:${{ env.TAG }}
+
+      - name: Deploy Worker Service on Server
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            sudo su -c "
+              cd /root/voting-app &&
+              sed -i 's/^WORKER_TAG=.*/WORKER_TAG=${{ env.TAG }}/' .env &&
+              docker compose pull worker &&
+              docker compose up -d worker
+            "
